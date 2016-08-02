@@ -6,10 +6,12 @@ import cv2
 import os
 
 # settings
-pictureSize = (640, 480)
-fps = 10
-onscreenDisplay = True
+pictureSize = (1296, 730)
+fps = 2
+onscreenDisplay = False
 saveVideo = True
+activationThreshold = 10000
+idleStopTime = 5
 
 class VideoOutput(object):
 	def __init__(self, enabled, fps, resolution):
@@ -70,7 +72,7 @@ rawCapture = PiRGBArray(camera, size=pictureSize)
 
 # allow the camera to warmup
 time.sleep(0.1)
-lastImage = createEmptyImage()
+firstImageCaptured = False
 
 if onscreenDisplay:
 	liveWindowName = "Live"
@@ -87,9 +89,14 @@ recording = False
 # capture frames from the camera
 lastChangeTime = time.time()
 videoOuput = VideoOutput(saveVideo, fps, pictureSize)
-
-for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+print("Waiting for the camera")
+time.sleep(3)
+print("Start watching")
+for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):	
 	rawImage = frame.array
+	if not firstImageCaptured:
+		lastImage = rawImage
+		firstImageCaptured = True
 
 	d = createEmptyImage()
 	cv2.absdiff(lastImage, rawImage, d)
@@ -106,14 +113,14 @@ for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=
 
 	if changeSum != 0:
 		print(changeSum, changeSum / (pictureSize[0]*pictureSize[1]))
-	if changeSum > 5000:
+	if changeSum > activationThreshold:
 		if not recording:
 			videoOuput.startRecording()
 			recording = True
 		lastChangeTime = time.time()
 	else:
 		print(time.time() - lastChangeTime)
-		if recording and time.time()- lastChangeTime > 3:
+		if recording and time.time()- lastChangeTime > idleStopTime:
 			recording = False
 			videoOuput.stopRecording()
 
