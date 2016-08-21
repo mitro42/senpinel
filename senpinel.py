@@ -4,14 +4,7 @@ import numpy as np
 import time
 import cv2
 import os
-
-# settings
-pictureSize = (1296, 730)
-fps = 2
-onscreenDisplay = False
-saveVideo = True
-activationThreshold = 10000
-idleStopTime = 5
+import configparser
 
 class VideoOutput(object):
 	def __init__(self, enabled, fps, resolution):
@@ -52,12 +45,12 @@ class VideoOutput(object):
 			self.outFile.release()
 
 
-def createEmptyImage():
-	return np.zeros((pictureSize[1], pictureSize[0], 3), np.uint8)
+def createEmptyImage(imageSize):
+	return np.zeros((imageSize[1], imageSize[0], 3), np.uint8)
 
 def addTimeStamp(image):
 	size = (255, 22)
-	topLeft = (int((pictureSize[0] - size[0])/2), 20)
+	topLeft = (int((image.shape[1] - size[0])/2), 20)
 	bottomRight = (topLeft[0] + size[0], topLeft[1] + size[1])
 	bottomLeft = (topLeft[0], topLeft[1] + size[1]-2)
 	cv2.rectangle(image, topLeft, bottomRight, (0,0,0), -1)
@@ -65,72 +58,109 @@ def addTimeStamp(image):
 	text = time.strftime("%Y.%m.%d %H:%M:%S")
 	cv2.putText(image, text, bottomLeft, font, 1.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-camera = PiCamera()
-camera.resolution = pictureSize
-camera.framerate = fps
-rawCapture = PiRGBArray(camera, size=pictureSize)
 
-# allow the camera to warmup
-time.sleep(0.1)
-firstImageCaptured = False
+def getSettings(fileName):
+	config = configparser.ConfigParser()
+	config['general'] = {}
+	config['general']['onscreen_display'] = 'False'
+	config['general']['save_video'] = 'True'
+	config['general']['stop_after'] = '5'
+	config['video_input'] = {}
+	config['video_input']['width'] = '800'
+	config['video_input']['height'] = '600'
+	config['video_input']['fps'] = '15'
+	config['video_input']['iso'] = '1600'
+	config['detection'] = {}
+	config['detection']['threshold'] = '20000'
 
-if onscreenDisplay:
-	liveWindowName = "Live"
-	diffWindowName = "Diff"
-
-	cv2.namedWindow(liveWindowName)
-	cv2.namedWindow(diffWindowName)
-
-	cv2.moveWindow(liveWindowName, 0, 10)
-	cv2.moveWindow(diffWindowName, pictureSize[0], 10)
-
-
-recording = False
-# capture frames from the camera
-lastChangeTime = time.time()
-videoOuput = VideoOutput(saveVideo, fps, pictureSize)
-print("Waiting for the camera")
-time.sleep(3)
-print("Start watching")
-for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):	
-	rawImage = frame.array
-	if not firstImageCaptured:
-		lastImage = rawImage
-		firstImageCaptured = True
-
-	d = createEmptyImage()
-	cv2.absdiff(lastImage, rawImage, d)
-
-	ret, d = cv2.threshold(d, 30, 255, cv2.THRESH_BINARY)
-	d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
-	changeSum = np.sum(d)
-
-	image = rawImage.copy()
-	addTimeStamp(image)
-	if onscreenDisplay:
-		cv2.imshow(liveWindowName, image)
-		cv2.imshow(diffWindowName, d)
-
-	if changeSum != 0:
-		print(changeSum, changeSum / (pictureSize[0]*pictureSize[1]))
-	if changeSum > activationThreshold:
-		if not recording:
-			videoOuput.startRecording()
-			recording = True
-		lastChangeTime = time.time()
+	if os.path.exists(fileName):
+		config.read(fileName)
 	else:
-		print(time.time() - lastChangeTime)
-		if recording and time.time()- lastChangeTime > idleStopTime:
-			recording = False
-			videoOuput.stopRecording()
+		with open(fileName, 'w') as configfile:
+			config.write(configfile)
 
-	if recording:
-		videoOuput.saveImage(image)
+	settings = {}
+	settings['onscreen_display'] = config['general'].getboolean('onscreen_display')
+	settings['save_video'] = config['general'].getboolean('save_video')
+	settings['input_resolution'] = (int(config['video_input']['width']), int(config['video_input']['height']))
+	settings['fps'] = int(config['video_input']['fps'])
+	settings['iso'] = int(config['video_input']['iso'])
+	settings['threshold'] = int(config['detection']['threshold'])
+	settings['stop_after'] = float(config['general']['stop_after'])
+	return settings
 
-	lastImage = rawImage
-	rawCapture.truncate(0)
+def main():
+	settings = getSettings('.senpinel')
 
-	key = cv2.waitKey(1) & 0xFF
-	if key == ord("q"):
-		break
+	camera = PiCamera()
+	camera.resolution = settings['input_resolution']
+	camera.framerate = settings['fps']
+	camera.iso = settings['iso']
+	rawCapture = PiRGBArray(camera, size=settings['input_resolution'])
 
+	# allow the camera to warmup
+	time.sleep(0.1)
+	firstImageCaptured = False
+
+	if settings['onscreen_display']:
+		liveWindowName = "Live"
+		#diffWindowName = "Diff"
+
+		cv2.namedWindow(liveWindowName)
+		#cv2.namedWindow(diffWindowName)
+
+		cv2.moveWindow(liveWindowName, 0, 10)
+		#cv2.moveWindow(diffWindowName, settings['input_resolution'][0], 10)
+
+
+	recording = False
+	# capture frames from the camera
+	lastChangeTime = time.time()
+	videoOuput = VideoOutput(settings['save_video'], settings['fps'], settings['input_resolution'])
+	print("Waiting for the camera")
+	time.sleep(3)
+	print("Start watching")
+	for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+		rawImage = frame.array
+		if not firstImageCaptured:
+			lastImage = rawImage
+			firstImageCaptured = True
+
+		d = createEmptyImage(settings['input_resolution'])
+		cv2.absdiff(lastImage, rawImage, d)
+
+		ret, d = cv2.threshold(d, 30, 255, cv2.THRESH_BINARY)
+		d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
+		changeSum = np.sum(d)
+
+		image = rawImage.copy()
+		addTimeStamp(image)
+		if settings['onscreen_display']:
+			cv2.imshow(liveWindowName, image)
+			#cv2.imshow(diffWindowName, d)
+
+		if changeSum != 0:
+			print(changeSum, changeSum / (settings['input_resolution'][0]*settings['input_resolution'][1]))
+		if changeSum > settings['threshold']:
+			if not recording:
+				videoOuput.startRecording()
+				recording = True
+			lastChangeTime = time.time()
+		else:
+			print(time.time() - lastChangeTime)
+			if recording and time.time()- lastChangeTime > settings['stop_after']:
+				recording = False
+				videoOuput.stopRecording()
+
+		if recording:
+			videoOuput.saveImage(image)
+
+		lastImage = rawImage
+		rawCapture.truncate(0)
+
+		key = cv2.waitKey(1) & 0xFF
+		if key == ord("q"):
+			break
+
+if __name__ == "__main__":
+	main()
