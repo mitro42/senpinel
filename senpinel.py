@@ -16,9 +16,10 @@ class VideoOutput(object):
 		self.saveEnabled = enabled
 		self.frameCount = 0
 		self.fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+		self.outFile = None
 
 	def __del__(self):
-		self.outFile.release()
+		self.stopRecording()
 
 	def startRecording(self):
 		print("startRecording")
@@ -40,9 +41,9 @@ class VideoOutput(object):
 
 
 	def stopRecording(self):
-		self.fileName = ""
-		if self.saveEnabled:
+		if self.saveEnabled and self.outFile != None:
 			self.outFile.release()
+		self.fileName = ""
 
 
 def createEmptyImage(imageSize):
