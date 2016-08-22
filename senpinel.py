@@ -36,18 +36,36 @@ class VideoOutput(object):
 	def saveImage(self, image):
 		if self.saveEnabled:
 			self.outFile.write(image)
-			print("recording frame %d"%self.frameCount)
 		self.frameCount += 1
 
 
 	def stopRecording(self):
+		print("Stop recording")
 		if self.saveEnabled and self.outFile != None:
 			self.outFile.release()
 		self.fileName = ""
 
-
 def createEmptyImage(imageSize):
 	return np.zeros((imageSize[1], imageSize[0], 3), np.uint8)
+
+class MotionDetector:
+			def __init__(self, threshold):
+				self.threshold = threshold
+				self.lastImage = None
+
+			def detect(self, image):
+				if self.lastImage == None:
+					self.lastImage = image
+					return 0;
+
+				d = createEmptyImage((image.shape[1], image.shape[0]))
+				cv2.absdiff(self.lastImage, image, d)
+
+				ret, d = cv2.threshold(d, 30, 255, cv2.THRESH_BINARY)
+				d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
+				changeSum = np.sum(d)
+				self.lastImage = image
+				return changeSum
 
 def addTimeStamp(image):
 	size = (255, 22)
@@ -98,10 +116,9 @@ def main():
 	camera.framerate = settings['fps']
 	camera.iso = settings['iso']
 	rawCapture = PiRGBArray(camera, size=settings['input_resolution'])
-
+	print('settings  = ', settings)
 	# allow the camera to warmup
 	time.sleep(0.1)
-	firstImageCaptured = False
 
 	if settings['onscreen_display']:
 		liveWindowName = "Live"
@@ -115,44 +132,43 @@ def main():
 
 
 	recording = False
-	# capture frames from the camera
+
 	lastChangeTime = time.time()
 	videoOuput = VideoOutput(settings['save_video'], settings['fps'], settings['input_resolution'])
 	print("Waiting for the camera")
 	time.sleep(3)
 	print("Start watching")
+	detector = MotionDetector(settings['threshold'])
+
 	for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
 		rawImage = frame.array
-		if not firstImageCaptured:
-			lastImage = rawImage
-			firstImageCaptured = True
 
-		d = createEmptyImage(settings['input_resolution'])
-		cv2.absdiff(lastImage, rawImage, d)
-
-		ret, d = cv2.threshold(d, 30, 255, cv2.THRESH_BINARY)
-		d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
-		changeSum = np.sum(d)
+		detectionStartTime = time.time()
+		changeScore = detector.detect(rawImage)
+		detectionEndTime = time.time()
 
 		image = rawImage.copy()
 		addTimeStamp(image)
 		if settings['onscreen_display']:
 			cv2.imshow(liveWindowName, image)
 			#cv2.imshow(diffWindowName, d)
+		logLine = "Detection speed: %10.2fs\t"%(1.0/(detectionEndTime - detectionStartTime))
+		logLine += "Change: %12d\t%.2f%%\t"%(changeScore, changeScore / (settings['input_resolution'][0]*settings['input_resolution'][1]))
 
-		if changeSum != 0:
-			print(changeSum, changeSum / (settings['input_resolution'][0]*settings['input_resolution'][1]))
-		if changeSum > settings['threshold']:
+		if changeScore > settings['threshold']:
 			if not recording:
 				videoOuput.startRecording()
 				recording = True
+				recordingStartTime = time.time()
 			lastChangeTime = time.time()
+			logLine += "Recorded %ds"%(time.time() - recordingStartTime)
 		else:
-			print(time.time() - lastChangeTime)
+			logLine += "No change in %.2fs"%(time.time() - lastChangeTime)
 			if recording and time.time()- lastChangeTime > settings['stop_after']:
 				recording = False
 				videoOuput.stopRecording()
 
+		print(logLine)
 		if recording:
 			videoOuput.saveImage(image)
 
