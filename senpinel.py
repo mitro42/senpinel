@@ -46,25 +46,30 @@ class VideoOutput(object):
 		self.fileName = ""
 
 def createEmptyImage(imageSize):
-	return np.zeros((imageSize[1], imageSize[0], 3), np.uint8)
+	return np.zeros((imageSize[1], imageSize[0]), np.uint8)
 
 class MotionDetector:
 			def __init__(self, threshold):
 				self.threshold = threshold
 				self.lastImage = None
 
+
 			def detect(self, image):
+				gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+				gray = cv2.resize(gray, (500, int(500 * image.shape[0] / image.shape[1])))
+
 				if self.lastImage == None:
-					self.lastImage = image
+					self.lastImage = gray
 					return 0;
 
-				d = createEmptyImage((image.shape[1], image.shape[0]))
-				cv2.absdiff(self.lastImage, image, d)
+				d = createEmptyImage((gray.shape[1], gray.shape[0]))
+				cv2.absdiff(self.lastImage, gray, d)
 
 				ret, d = cv2.threshold(d, 30, 255, cv2.THRESH_BINARY)
-				d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
+				#cv2.imshow("diff", d)
+
 				changeSum = np.sum(d)
-				self.lastImage = image
+				self.lastImage = gray
 				return changeSum
 
 def addTimeStamp(image):
@@ -90,7 +95,7 @@ def getSettings(fileName):
 	config['video_input']['fps'] = '15'
 	config['video_input']['iso'] = '1600'
 	config['detection'] = {}
-	config['detection']['threshold'] = '20000'
+	config['detection']['threshold'] = '2000'
 
 	if os.path.exists(fileName):
 		config.read(fileName)
