@@ -157,7 +157,7 @@ def main():
 		if settings['onscreen_display']:
 			cv2.imshow(liveWindowName, image)
 			#cv2.imshow(diffWindowName, d)
-		logLine = "Detection speed: %10.2fs\t"%(1.0/(detectionEndTime - detectionStartTime))
+		logLine = "Detection speed: %10.2ffps\t"%(1.0/(detectionEndTime - detectionStartTime))
 		logLine += "Change: %12d\t%.2f%%\t"%(changeScore, changeScore / (settings['input_resolution'][0]*settings['input_resolution'][1]))
 
 		if changeScore > settings['threshold']:
