@@ -5,6 +5,8 @@ import time
 import cv2
 import os
 import configparser
+import queue
+import threading
 
 class VideoOutput(object):
 	def __init__(self, enabled, fps, resolution):
@@ -17,12 +19,32 @@ class VideoOutput(object):
 		self.frameCount = 0
 		self.fourcc = cv2.VideoWriter_fourcc(*'DIVX')
 		self.outFile = None
+		self.imageQueue = queue.Queue()
+		self.saverThread = None
 
 	def __del__(self):
 		self.stopRecording()
 
+	def saver(self):
+		while True:
+			image = self.imageQueue.get()
+			if image.shape == (0,0):
+				break
+
+			if self.saveEnabled:
+				self.outFile.write(image)
+
+		if self.saveEnabled and self.outFile != None:
+			self.outFile.release()
+		self.fileName = ""
+
 	def startRecording(self):
+		if self.saverThread != None:
+			print("Recording is already running, cannot start another one")
+			return
+
 		print("startRecording")
+
 		while self.fileName =="" or os.path.exists(self.fileName):
 			self.videoCount += 1
 			self.fileName = "vid_%06d.avi"%(self.videoCount)
@@ -31,19 +53,22 @@ class VideoOutput(object):
 			self.fourcc,
 			self.fps,
 			self.resolution)
+		self.saverThread = threading.Thread(target=self.saver)
+		self.saverThread.start()
 		print("Start recording to file ", self.fileName)
 
 	def saveImage(self, image):
-		if self.saveEnabled:
-			self.outFile.write(image)
+		self.imageQueue.put(image)
 		self.frameCount += 1
-
 
 	def stopRecording(self):
 		print("Stop recording")
-		if self.saveEnabled and self.outFile != None:
-			self.outFile.release()
-		self.fileName = ""
+
+		self.imageQueue.put(np.zeros((0, 0), np.uint8))
+		if self.saverThread != None and self.saverThread.is_alive():
+			self.saverThread.join()
+			self.saverThread = None
+
 
 def createEmptyImage(imageSize):
 	return np.zeros((imageSize[1], imageSize[0]), np.uint8)
